@@ -15,12 +15,15 @@ Projects instantiate this once and use it everywhere:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from .core.counter import ResourceCounter
 from .core.enforcer import CheckResult, Enforcer
 from .core.models import Feature, Plan
 from .core.registry import Registry
+
+logger = logging.getLogger(__name__)
 
 
 class PlanCraft:
@@ -156,3 +159,67 @@ class PlanCraft:
     async def get_usage(self, entity: Any, resource: str, db: Any) -> dict:
         """Get current usage info for display."""
         return await self.enforcer.get_usage(entity, resource, db)
+
+    # ------------------------------------------------------------------
+    # Cache invalidation — call these after any create/delete that
+    # changes a resource count or override state.
+    # ------------------------------------------------------------------
+
+    def invalidate_resource(self, entity_id: str, resource: str) -> None:
+        """
+        Invalidate the cached resource count for (entity_id, resource).
+        Call after a create or delete of a counted resource.
+
+        Example:
+            plancraft.invalidate_resource(str(org.id), "projects")
+        """
+        if self._cache is not None:
+            self._cache.invalidate(entity_id, resource)
+
+    def invalidate_entity(self, entity_id: str) -> None:
+        """
+        Invalidate all cached data for an entity (plan key, counts, overrides).
+        Call when an org's plan is changed.
+        """
+        if self._cache is not None:
+            self._cache.invalidate_entity(entity_id)
+
+    def invalidate_overrides(self, entity_id: str) -> None:
+        """
+        Invalidate cached feature overrides for an entity.
+        Call after adding or removing a per-org override.
+        """
+        if self._cache is not None:
+            self._cache.invalidate_overrides(entity_id)
+
+    # ------------------------------------------------------------------
+    # Hot-reload — swap the in-memory catalog from DB-loaded data.
+    # ------------------------------------------------------------------
+
+    def reload_catalog(
+        self,
+        features: dict[str, Feature],
+        plans: dict[str, Plan],
+        default_plan: str = "free",
+    ) -> None:
+        """
+        Hot-reload the billing catalog from new data (e.g. after a platform
+        admin edits plans in the UI). Replaces registry contents in-place;
+        existing Depends/counters keep working.
+
+        Counters are preserved — they're project code, not catalog data.
+        """
+        # Re-register replaces _features and _plans dicts but keeps _counters.
+        existing_counters = list(self.registry._counters.values())
+        self.registry.register(
+            features=features,
+            plans=plans,
+            counters=existing_counters,
+            default_plan=default_plan,
+        )
+        logger.info(
+            "plancraft: catalog reloaded plans=%d features=%d default=%s",
+            len(plans),
+            len(features),
+            default_plan,
+        )
