@@ -204,13 +204,17 @@ class PlanCraft:
     ) -> None:
         """
         Hot-reload the billing catalog from new data (e.g. after a platform
-        admin edits plans in the UI). Replaces registry contents in-place;
+        admin edits plans in the UI). Fully replaces registry contents;
         existing Depends/counters keep working.
 
         Counters are preserved — they're project code, not catalog data.
+        The replace is atomic from the caller's perspective: the registry
+        dicts are cleared and re-populated in a single synchronous call.
         """
-        # Re-register replaces _features and _plans dicts but keeps _counters.
         existing_counters = list(self.registry._counters.values())
+        # Clear so DB state is authoritative — remove plans that no longer exist.
+        self.registry._features.clear()
+        self.registry._plans.clear()
         self.registry.register(
             features=features,
             plans=plans,
