@@ -3,25 +3,73 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "plancraft"
+name = "mozbridge-plancraft"
 version = "0.1.0"
 description = "Pluggable plan, feature gating, and billing engine for SaaS applications"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Jessin Palackal" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Framework :: FastAPI",
+    "Framework :: Django",
+    "Typing :: Typed",
+]
 
 dependencies = [
     "pydantic>=2.0",
 ]
 
+# NOTE: "django" pulls in djangorestframework too — integrations/django/
+# permissions.py (HasFeature/WithinLimit) hard-requires it and raises a
+# clear ImportError otherwise; mixins.py degrades to plain Http404 without
+# it, which is a worse failure mode to ship silently.
+#
+# NOTE: "all" lists its dependencies directly rather than as a
+# self-referential extra (e.g. "plancraft[fastapi,redis,stripe]"). A
+# self-referential extra embeds the distribution name as a literal string;
+# since that name is not yet finalized (see [project] name comment), a
+# hardcoded self-reference here would silently go stale the moment the
+# distribution is renamed. Keep it flattened even after the name is set —
+# one less thing to keep in sync.
+#
+# "all" intentionally omits "django". Stripe billing is not implemented
+# yet either (see stripe extra + README) — it is declared for
+# forward-compatibility with a future payment-processor integration, not
+# because plancraft does anything with it today.
 [project.optional-dependencies]
 fastapi  = ["fastapi>=0.100", "sqlalchemy>=2.0"]
-django   = ["django>=4.0"]
+django   = ["django>=4.0", "djangorestframework>=3.14"]
 redis    = ["redis>=5.0"]
 stripe   = ["stripe>=7.0"]
-all      = ["plancraft[fastapi,redis,stripe]"]
-dev      = ["pytest", "pytest-asyncio", "httpx", "ruff"]
+all      = ["fastapi>=0.100", "sqlalchemy>=2.0", "redis>=5.0", "stripe>=7.0"]
+dev      = ["pytest", "pytest-asyncio", "httpx", "ruff", "build", "twine"]
+
+# Import name is always "plancraft" regardless of the distribution ("name ="
+# above). Declared explicitly because hatchling's default wheel file
+# selection heuristic matches the *distribution* name against a top-level
+# directory — it breaks the moment "name" stops being literally "plancraft"
+# (e.g. "cruxhive-plancraft" normalizes to a "cruxhive_plancraft" directory
+# guess that does not exist). Do not remove this even if it looks redundant
+# with the current name.
+[tool.hatch.build.targets.wheel]
+packages = ["plancraft"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/plancraft",
+    "/tests",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 100
