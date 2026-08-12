@@ -39,8 +39,6 @@ class PlanCraft:
         self,
         gateway: str | None = None,
         stripe_key: str | None = None,
-        cache: str | None = None,  # "redis" | None (in-memory)
-        cache_ttl: int = 60,
         get_entity: Any | None = None,  # callable: request → billing entity
         get_plan_key: Any | None = None,  # callable: entity → plan key string
         get_db: Any | None = None,  # callable: request → db session
@@ -48,8 +46,6 @@ class PlanCraft:
         self.registry = Registry()
         self._gateway_type = gateway
         self._stripe_key = stripe_key
-        self._cache_type = cache
-        self._cache_ttl = cache_ttl
         self._get_entity = get_entity
         self._get_db = get_db
 
@@ -59,7 +55,6 @@ class PlanCraft:
         )
 
         self._gateway = None
-        self._cache = None
         self._router = None
 
     # ------------------------------------------------------------------
@@ -161,36 +156,26 @@ class PlanCraft:
         return await self.enforcer.get_usage(entity, resource, db)
 
     # ------------------------------------------------------------------
-    # Cache invalidation — call these after any create/delete that
-    # changes a resource count or override state.
+    # Cache invalidation hooks — kept for API compatibility only.
+    #
+    # PlanCraft does not implement caching. `can()` and `within_limit()`
+    # recompute from the registry/counter on every call, so there is
+    # nothing here to invalidate. These methods are deliberate no-ops:
+    # integrations (e.g. the Django mixins' perform_create) call them
+    # unconditionally after a create/delete, and removing the methods
+    # outright would break that calling convention. If caching is added
+    # later, wire it here explicitly rather than assuming these already
+    # do something.
     # ------------------------------------------------------------------
 
     def invalidate_resource(self, entity_id: str, resource: str) -> None:
-        """
-        Invalidate the cached resource count for (entity_id, resource).
-        Call after a create or delete of a counted resource.
-
-        Example:
-            plancraft.invalidate_resource(str(org.id), "projects")
-        """
-        if self._cache is not None:
-            self._cache.invalidate(entity_id, resource)
+        """No-op — PlanCraft does not cache resource counts. See class note above."""
 
     def invalidate_entity(self, entity_id: str) -> None:
-        """
-        Invalidate all cached data for an entity (plan key, counts, overrides).
-        Call when an org's plan is changed.
-        """
-        if self._cache is not None:
-            self._cache.invalidate_entity(entity_id)
+        """No-op — PlanCraft does not cache entity data. See class note above."""
 
     def invalidate_overrides(self, entity_id: str) -> None:
-        """
-        Invalidate cached feature overrides for an entity.
-        Call after adding or removing a per-org override.
-        """
-        if self._cache is not None:
-            self._cache.invalidate_overrides(entity_id)
+        """No-op — PlanCraft does not cache overrides. See class note above."""
 
     # ------------------------------------------------------------------
     # Hot-reload — swap the in-memory catalog from DB-loaded data.

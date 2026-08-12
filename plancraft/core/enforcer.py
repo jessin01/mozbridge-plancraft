@@ -6,7 +6,7 @@ Answers two questions:
   2. within_limit(entity, resource, db) → is this entity under their resource limit?
 
 Framework-agnostic. No FastAPI, no Django here.
-Cache is injected — defaults to in-memory (no Redis required).
+No caching layer — every call recomputes from the registry/counter.
 """
 
 from __future__ import annotations
@@ -57,17 +57,15 @@ class CheckResult:
 class Enforcer:
     """
     Core enforcement engine.
-    Injected with a registry and optional cache + override store.
+    Injected with a registry. No caching layer.
     """
 
     def __init__(
         self,
         registry: Registry,
-        cache: Any | None = None,
         get_plan_key: Any | None = None,
     ):
         self.registry = registry
-        self.cache = cache
         # get_plan_key(entity) → str
         # Project provides this — tells enforcer how to get plan from entity
         self._get_plan_key = get_plan_key or (lambda entity: getattr(entity, "plan", "free"))

@@ -74,11 +74,39 @@ class LocalCache:
             self._store.pop(target, None)
 
     def invalidate_entity(self, entity_id: str) -> None:
-        """Remove all cached keys that contain the entity_id."""
+        """
+        Remove all cached keys that belong to entity_id.
+
+        Keys are colon-joined ("count:10:projects", "overrides:10"). A key
+        belongs to entity_id only if entity_id occupies one whole
+        colon-delimited segment of the key — never a raw substring match.
+        This keeps invalidate_entity("1") from also evicting entity "10",
+        "11", "21", etc.
+
+        entity_id itself may contain the ":" separator (e.g. a composite
+        id). A plain `entity_id in key.split(":")` check would split
+        entity_id apart too and never match it as a single piece, so
+        instead we check every contiguous run of ":"-delimited segments
+        of the key for equality with entity_id.
+        """
         with self._lock:
-            drop = [k for k in self._store if entity_id in k]
+            drop = [k for k in self._store if self._key_matches_entity(k, entity_id)]
             for k in drop:
                 del self._store[k]
+
+    @staticmethod
+    def _key_matches_entity(key: str, entity_id: str) -> bool:
+        parts = key.split(":")
+        n = len(parts)
+        for i in range(n):
+            joined = parts[i]
+            if joined == entity_id:
+                return True
+            for j in range(i + 1, n):
+                joined = f"{joined}:{parts[j]}"
+                if joined == entity_id:
+                    return True
+        return False
 
     def invalidate_overrides(self, entity_id: str) -> None:
         """Remove cached overrides for an entity."""

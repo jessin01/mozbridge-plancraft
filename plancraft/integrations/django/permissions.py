@@ -97,18 +97,34 @@ def WithinLimit(resource: str, pc: Any):  # noqa: N802
                 entity = get_entity()
                 db = getattr(view, "get_billing_db", lambda: None)()
 
+                # Policy: fail OPEN only on genuine infrastructure failure
+                # (the async bridge itself breaking — event loop errors, or
+                # the worker thread timing out). Everything raised BY
+                # pc.within_limit() itself — an unknown resource key, a
+                # missing/misconfigured plan, or any other logic error in
+                # the entitlement check — is a real defect, not
+                # infrastructure, and must fail CLOSED (deny) so it can
+                # never silently grant access. This matches the Django
+                # mixins (PlanLimitMixin.perform_create), which have no
+                # catch-all at all and would propagate such errors.
                 try:
                     loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        import concurrent.futures
+                except RuntimeError:
+                    return True  # no event loop available — infra failure
 
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                            future = pool.submit(asyncio.run, pc.within_limit(entity, resource, db))
+                if loop.is_running():
+                    import concurrent.futures
+
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        future = pool.submit(asyncio.run, pc.within_limit(entity, resource, db))
+                        try:
                             result = future.result(timeout=5)
-                    else:
-                        result = loop.run_until_complete(pc.within_limit(entity, resource, db))
-                except Exception:
-                    return True  # fail open on infrastructure error
+                        except concurrent.futures.TimeoutError:
+                            return True  # worker hung — infra failure, fail open
+                        # Any other exception is from within_limit() itself
+                        # (or code it calls) and propagates uncaught — fail closed.
+                else:
+                    result = loop.run_until_complete(pc.within_limit(entity, resource, db))
 
                 if not result.allowed:
                     raise _PaymentRequired(

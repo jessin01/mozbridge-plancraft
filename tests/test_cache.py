@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
 
 from plancraft.cache.local_cache import LocalCache
 
@@ -71,35 +70,22 @@ class TestInvalidateSpecificKey:
         assert cache.get("count", "1", "projects") == 5
 
 
-class TestInvalidateEntitySubstringBug:
+class TestInvalidateEntityIsExact:
     """
-    FINDING (xfail, not fixed here): LocalCache.invalidate_entity() drops
-    every key that CONTAINS entity_id as a substring:
+    LocalCache.invalidate_entity() used to drop every key that CONTAINED
+    entity_id as a raw substring:
 
         drop = [k for k in self._store if entity_id in k]
 
     Keys are colon-joined ("count:10:projects"), so invalidate_entity("1")
-    also matches and evicts entity "10"'s, "11"'s, "21"'s, etc. cache
-    entries, because "1" is a substring of "10". This is a cross-tenant
-    cache-invalidation bug: an action on entity 1 can silently blow away
-    cached counts for unrelated entities whose numeric id merely contains
-    "1". Reported per instructions rather than silently patched, since
-    LocalCache isn't currently wired into PlanCraft's own code paths
-    (see test_registry_and_usage.py) and the fix (delimiter-aware
-    matching, e.g. matching "count:1:" as a prefix segment) is a real
-    behavioural change that belongs to a deliberate patch, not this
-    test-hardening pass.
+    also matched and evicted entity "10"'s, "11"'s, "21"'s, etc. cache
+    entries, because "1" is a substring of "10". That was a cross-tenant
+    cache-invalidation bug: an action on entity 1 could silently blow away
+    cached counts for unrelated entities whose numeric id merely contained
+    "1". Fixed to match entity_id against whole ":"-delimited segments
+    (or the full key / start / end) instead of a raw substring search.
     """
 
-    @pytest.mark.xfail(
-        reason=(
-            "LocalCache.invalidate_entity() matches entity_id as a raw substring "
-            "of the joined cache key, so invalidate_entity('1') also evicts "
-            "entity '10' (and '11', '21', ...). Cross-tenant cache-invalidation "
-            "bug, not fixed here — see class docstring."
-        ),
-        strict=True,
-    )
     def test_invalidate_entity_does_not_evict_unrelated_entity_by_substring(self):
         cache = LocalCache(ttl=60)
         cache.set("count", "10", "projects", value=99)
@@ -108,3 +94,39 @@ class TestInvalidateEntitySubstringBug:
             "invalidate_entity('1') evicted entity '10's cache entry via "
             "substring match — see class docstring for the underlying bug"
         )
+
+    def test_invalidate_entity_evicts_all_keys_for_the_matching_entity(self):
+        cache = LocalCache(ttl=60)
+        cache.set("count", "1", "projects", value=5)
+        cache.set("overrides", "1", value=["x"])
+        cache.invalidate_entity("1")
+        assert cache.get("count", "1", "projects") is None
+        assert cache.get("overrides", "1") is None
+
+    def test_invalidate_entity_matches_lone_key_equal_to_entity_id(self):
+        cache = LocalCache(ttl=60)
+        cache.set("1", value="bare-key")
+        cache.invalidate_entity("1")
+        assert cache.get("1") is None
+
+    def test_invalidate_entity_id_containing_separator_is_matched(self):
+        cache = LocalCache(ttl=60)
+        # entity id is itself "10:20" (composite id containing ":")
+        cache.set("count", "10:20", "projects", value=7)
+        cache.invalidate_entity("10:20")
+        assert cache.get("count", "10:20", "projects") is None
+        # Note: a colon-containing entity_id is inherently ambiguous
+        # against an unrelated key whose OTHER segments happen to join to
+        # the same string (e.g. cache.set("count", "10", "20", ...) also
+        # produces the key "count:10:20"). Colon-joined keys carry no
+        # segment-boundary metadata, so that ambiguity can't be resolved
+        # without a schema-aware key format; this only guarantees the
+        # legitimate entity key itself is matched.
+
+    def test_invalidate_entity_still_ignores_unrelated_short_numeric_id(self):
+        cache = LocalCache(ttl=60)
+        cache.set("count", "21", "projects", value=1)
+        cache.set("count", "12", "projects", value=2)
+        cache.invalidate_entity("1")
+        assert cache.get("count", "21", "projects") == 1
+        assert cache.get("count", "12", "projects") == 2
