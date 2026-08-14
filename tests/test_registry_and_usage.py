@@ -1,7 +1,8 @@
 """
 Registry lookup edge cases + get_usage()/reload_catalog() coverage,
-plus a pinned finding: PlanCraft's cache layer is fully wired to `None`
-and never actually caches anything today.
+plus coverage confirming PlanCraft has no caching layer: `can()` and
+`within_limit()` always recompute, and the invalidate_* methods are
+documented no-ops kept only for integration API compatibility.
 """
 
 from __future__ import annotations
@@ -150,49 +151,55 @@ class TestGetUsage:
 # ------------------------------------------------------------------
 
 
-class TestCacheIsNeverActuallyWired:
+class TestPlanCraftHasNoCache:
     """
-    FINDING: PlanCraft.__init__ stores `cache_ttl`/`cache` (the string
-    "redis"/None) but `self._cache` is hardcoded to `None` and nothing in
-    plancraft.py ever instantiates `LocalCache` or a Redis-backed cache
-    into it. Enforcer is likewise never given a cache instance (PlanCraft
-    never passes `cache=` through to `Enforcer(...)`).
+    PlanCraft previously accepted `cache=`/`cache_ttl=` constructor
+    arguments and exposed invalidate_resource/invalidate_entity/
+    invalidate_overrides, but nothing ever wired a real cache behind any
+    of it — `self._cache` was permanently `None` and Enforcer never
+    received a cache instance. That was a lying API surface: the
+    constructor and docstrings implied caching that never happened.
 
-    Practical effect today:
-      - invalidate_resource / invalidate_entity / invalidate_overrides are
-        silent no-ops regardless of what you pass to PlanCraft(cache=...).
-      - within_limit()/can() never consult or populate a cache; every call
-        recomputes from the counter. The "L1 process-local cache with TTL"
-        described in local_cache.py's docstring is dead code from the
-        perspective of PlanCraft's own API surface — a caller can only get
-        caching by using plancraft.cache.local_cache.LocalCache directly.
-
-    This is not something this test suite should silently paper over by
-    wiring the cache in — that is a product/API decision, not a test
-    concern. Pinning current (no-op) behaviour here so a future patch that
-    "adds" caching is understood as a deliberate change, not a bugfix.
+    Decision: remove the dead `cache=`/`cache_ttl=` arguments and the
+    `Enforcer.cache` parameter entirely rather than wire up a real cache.
+    `invalidate_resource` / `invalidate_entity` / `invalidate_overrides`
+    are kept as explicit no-ops — integrations (e.g. the Django mixins'
+    perform_create) call them unconditionally after create/delete, so
+    removing them would break that calling convention. `can()` and
+    `within_limit()` always recompute from the registry/counter now,
+    honestly, with nothing implying otherwise.
     """
 
-    def test_plancraft_cache_attribute_is_always_none(self):
-        pc = PlanCraft(cache="redis", cache_ttl=30)
-        assert pc._cache is None
+    def test_plancraft_constructor_no_longer_accepts_cache_kwargs(self):
+        with pytest.raises(TypeError):
+            PlanCraft(cache="redis")  # type: ignore[call-arg]
+        with pytest.raises(TypeError):
+            PlanCraft(cache_ttl=30)  # type: ignore[call-arg]
+
+    def test_plancraft_has_no_cache_attribute(self):
+        pc = PlanCraft()
+        assert not hasattr(pc, "_cache")
+
+    def test_enforcer_constructor_no_longer_accepts_cache_kwarg(self):
+        from plancraft.core.enforcer import Enforcer
+        from plancraft.core.registry import Registry
+
+        with pytest.raises(TypeError):
+            Enforcer(registry=Registry(), cache=object())  # type: ignore[call-arg]
 
     def test_invalidate_calls_are_no_ops_and_do_not_raise(self):
-        pc = PlanCraft(cache="redis")
+        pc = PlanCraft()
         pc.register(features={}, plans={"free": Plan(name="Free")})
-        # None of these touch any real cache and none of them raise.
+        # None of these touch any cache (there isn't one) and none raise —
+        # they exist purely so integration calling conventions keep working.
         pc.invalidate_resource("1", "widgets")
         pc.invalidate_entity("1")
         pc.invalidate_overrides("1")
 
-    def test_enforcer_never_receives_a_cache_instance(self):
-        pc = PlanCraft(cache="redis")
-        assert pc.enforcer.cache is None
-
     @pytest.mark.asyncio
     async def test_within_limit_recomputes_via_counter_every_call_no_caching(self):
         counter = CountingCounter(value=1)
-        pc = PlanCraft(cache="redis")
+        pc = PlanCraft()
         pc.register(
             features={},
             plans={"free": Plan(name="Free", limits={"widgets": LimitConfig(hard=5)})},
@@ -202,4 +209,4 @@ class TestCacheIsNeverActuallyWired:
         await pc.within_limit(org, "widgets", db=None)
         await pc.within_limit(org, "widgets", db=None)
         await pc.within_limit(org, "widgets", db=None)
-        assert counter.calls == 3  # a real cache would have kept this at 1
+        assert counter.calls == 3  # no caching layer exists to short-circuit this

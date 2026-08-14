@@ -38,7 +38,21 @@ from plancraft.webhooks import verify_standard_webhook
 # Load the reference implementation (read-only; never modified by this suite)
 # ------------------------------------------------------------------
 
-_REFERENCE_PATH = Path(__file__).resolve().parents[3] / "app" / "services" / "whop.py"
+# A FROZEN copy of the pre-extraction implementation, captured from git at the
+# commit before Mozbridge began delegating to this package.
+#
+# It deliberately does NOT point at `backend/app/services/whop.py` any more.
+# That file now calls `verify_standard_webhook` itself, so comparing against it
+# would compare this package with itself and pass no matter what -- a test that
+# cannot fail, guarding the one thing most worth guarding. The whole value of a
+# differential test is a second, independent implementation, so the reference
+# has to stop tracking the thing it is meant to check.
+#
+# Do not "update" this fixture to match a change in the package. If they
+# diverge, either the package regressed or the divergence is intentional and
+# belongs in the docstring of `verify_standard_webhook` alongside the non-ASCII
+# case already recorded there.
+_REFERENCE_PATH = Path(__file__).resolve().parent / "fixtures" / "whop_reference_frozen.py"
 
 
 def _load_reference() -> types.ModuleType | None:
