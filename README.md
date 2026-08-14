@@ -19,18 +19,23 @@ enforcement only.
 
 ## Install
 
+Distribution name on PyPI will be **`mozbridge-plancraft`** (the name `plancraft` is
+taken by an unrelated LLM-eval dataset). The import stays `plancraft`:
+
 ```bash
-pip install plancraft
+pip install mozbridge-plancraft
+# or from a Mozbridge checkout:
+pip install ./backend/vendor/plancraft-py
 ```
 
 Optional extras, install what your project needs:
 
 ```bash
-pip install "plancraft[fastapi]"   # fastapi + sqlalchemy, for require_feature/require_limit deps + router
-pip install "plancraft[django]"    # django + djangorestframework, for the DRF mixins/permissions
-pip install "plancraft[redis]"     # redis client, if you wire a Redis-backed cache
-pip install "plancraft[all]"       # fastapi + redis + stripe dependencies, no django
-pip install "plancraft[dev]"       # pytest, ruff, build, twine — contributor tooling
+pip install "mozbridge-plancraft[fastapi]"   # fastapi + sqlalchemy
+pip install "mozbridge-plancraft[django]"    # django + djangorestframework
+pip install "mozbridge-plancraft[redis]"     # redis client
+pip install "mozbridge-plancraft[all]"       # fastapi + redis + stripe deps (no django)
+pip install "mozbridge-plancraft[dev]"       # pytest, ruff, build, twine
 ```
 
 Note: `all` deliberately excludes `django` (Django and FastAPI integrations are normally

@@ -33,12 +33,8 @@ dependencies = [
 # it, which is a worse failure mode to ship silently.
 #
 # NOTE: "all" lists its dependencies directly rather than as a
-# self-referential extra (e.g. "plancraft[fastapi,redis,stripe]"). A
-# self-referential extra embeds the distribution name as a literal string;
-# since that name is not yet finalized (see [project] name comment), a
-# hardcoded self-reference here would silently go stale the moment the
-# distribution is renamed. Keep it flattened even after the name is set —
-# one less thing to keep in sync.
+# self-referential extra (e.g. "mozbridge-plancraft[fastapi,redis,stripe]").
+# Keep it flattened — one less thing to keep in sync with [project] name.
 #
 # "all" intentionally omits "django". Stripe billing is not implemented
 # yet either (see stripe extra + README) — it is declared for
@@ -50,7 +46,25 @@ django   = ["django>=4.0", "djangorestframework>=3.14"]
 redis    = ["redis>=5.0"]
 stripe   = ["stripe>=7.0"]
 all      = ["fastapi>=0.100", "sqlalchemy>=2.0", "redis>=5.0", "stripe>=7.0"]
-dev      = ["pytest", "pytest-asyncio", "httpx", "ruff", "build", "twine"]
+# `dev` has to carry whatever the suite imports at module level, or CI dies at
+# collection instead of on a real assertion. tests/test_integration_fastapi.py
+# imports fastapi directly because it exercises actual HTTP behaviour (402 vs
+# 200 at the gating boundary), so fastapi + sqlalchemy belong here.
+#
+# django is deliberately NOT here. tests/test_integration_django.py pins that
+# plancraft imports and initialises cleanly for a project that has not added
+# the django extra, failing only where Django-specific functionality is
+# actually invoked. Installing django would silently destroy what it asserts.
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+    "build",
+    "twine",
+    "fastapi>=0.100",
+    "sqlalchemy>=2.0",
+]
 
 # Import name is always "plancraft" regardless of the distribution ("name ="
 # above). Declared explicitly because hatchling's default wheel file
