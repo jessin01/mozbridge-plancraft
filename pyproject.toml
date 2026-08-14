@@ -33,12 +33,8 @@ dependencies = [
 # it, which is a worse failure mode to ship silently.
 #
 # NOTE: "all" lists its dependencies directly rather than as a
-# self-referential extra (e.g. "plancraft[fastapi,redis,stripe]"). A
-# self-referential extra embeds the distribution name as a literal string;
-# since that name is not yet finalized (see [project] name comment), a
-# hardcoded self-reference here would silently go stale the moment the
-# distribution is renamed. Keep it flattened even after the name is set —
-# one less thing to keep in sync.
+# self-referential extra (e.g. "mozbridge-plancraft[fastapi,redis,stripe]").
+# Keep it flattened — one less thing to keep in sync with [project] name.
 #
 # "all" intentionally omits "django". Stripe billing is not implemented
 # yet either (see stripe extra + README) — it is declared for

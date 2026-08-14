@@ -31,6 +31,10 @@ import-level API and behavior.
 
 ## [Unreleased]
 
+### Changed
+- Distribution name locked to **`mozbridge-plancraft`** (import remains `plancraft`).
+  README install instructions updated; CruxHive branding rejected (platform package).
+
 ## [0.1.0] - 2026-08-11
 
 Initial vendored version.
