@@ -49,6 +49,35 @@ def make_feature_dependency(pc: "PlanCraft", feature_key: str):
     return _check_feature
 
 
+def limit_reached_detail(resource: str, result: Any, message: str | None = None) -> dict:
+    """The canonical 402 body for a limit refusal.
+
+    Exported because not every call site can use `make_limit_dependency`: some
+    resolve the billing entity from the request body rather than the standard
+    entity dependency, so they call `within_limit` directly and raise their own
+    HTTPException.
+
+    Those hand-written copies drift. Mozbridge had two of them for `mcp_tokens`
+    and one omitted `current` and `limit` — which the upgrade modal renders as
+    "You've used {current} of {limit}" with fallbacks of 0, so that one path
+    told users "0 of 0" while its sibling showed real numbers.
+
+    One shape, one place, whether it is raised by the dependency or by hand.
+    """
+    return {
+        "code": "limit_reached",
+        "resource": resource,
+        "current": getattr(result, "current", None),
+        "limit": getattr(result, "limit", None),
+        "reason": getattr(result, "reason", None),
+        "message": message
+        or (
+            f"You have reached your plan limit of {getattr(result, 'limit', None)} {resource}. "
+            f"Upgrade your plan to add more."
+        ),
+    }
+
+
 def make_limit_dependency(pc: "PlanCraft", resource: str):
     """
     Returns a FastAPI dependency that checks resource limits.
@@ -61,20 +90,7 @@ def make_limit_dependency(pc: "PlanCraft", resource: str):
     ):
         result = await pc.enforcer.within_limit(entity, resource, db)
         if not result:
-            raise HTTPException(
-                status_code=402,
-                detail={
-                    "code": "limit_reached",
-                    "resource": resource,
-                    "current": result.current,
-                    "limit": result.limit,
-                    "reason": result.reason,
-                    "message": (
-                        f"You have reached your plan limit of {result.limit} {resource}. "
-                        f"Upgrade your plan to add more."
-                    ),
-                },
-            )
+            raise HTTPException(status_code=402, detail=limit_reached_detail(resource, result))
         return result
 
     return _check_limit
